@@ -2,6 +2,8 @@ import os
 from datetime import datetime
 from PIL import Image
 from tqdm import tqdm  # Importa a função tqdm para a barra de progresso
+from ttkbootstrap import Style  # Importa o estilo do ttkbootstrap
+
 
 # Constantes
 folder_from = "./temp/"
