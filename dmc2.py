@@ -117,6 +117,12 @@ class ProcessamentoDeImagensApp:
         """Conta os arquivos em um diretório."""
         return sum([len(arquivos) for r, d, arquivos in os.walk(caminho_diretorio)])
 
+    def contar_arquivos_no_diretorio_geral(self, caminho_diretorio):
+        soma = 0
+        for item in self.lista_pastas.get_children():
+            soma += int(self.lista_pastas.item(item, 'values')[1])
+        return soma
+
     def atualizar_lista_de_pastas(self):
         """Atualiza a lista de pastas e o total de arquivos na tabela."""
         caminho_pasta = self.entry_pasta_origem.get()
@@ -127,10 +133,7 @@ class ProcessamentoDeImagensApp:
                 caminho_dir = os.path.join(caminho_pasta, diretorio)
                 if os.path.isdir(caminho_dir):
                     total_arquivos = self.contar_arquivos_no_diretorio(caminho_dir)
-                    if not self.validar_nome_pasta(diretorio):
-                        # Destaque em vermelho os nomes de pastas que não seguem a regra
-                        self.lista_pastas.insert('', 'end', values=(diretorio, total_arquivos), tags='error')
-                    else:
+                    if  self.validar_nome_pasta(diretorio):
                         self.lista_pastas.insert('', 'end', values=(diretorio, total_arquivos))
         self.lista_pastas.tag_configure('error', foreground='red')
 
@@ -160,7 +163,7 @@ class ProcessamentoDeImagensApp:
 
         contagem_pastas = 0
         contagem_imagens = 0
-        total_imagens = self.contar_arquivos_no_diretorio(pasta_origem)
+        total_imagens = self.contar_arquivos_no_diretorio_geral(pasta_origem)
 
         for diretorio in diretorios:
             contagem_pastas += 1
