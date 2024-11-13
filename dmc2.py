@@ -23,13 +23,16 @@ meses = {
     "12": "12_dezembro"
 }
 
-class ProcessamentoDeImagensApp:
-    
+# Definindo extensões válidas para cada tipo de arquivo
+EXTENSOES_IMAGEM = {".jpg", ".jpeg", ".png", ".gif"}
+EXTENSOES_VIDEO = {".mp4", ".mov", ".avi", ".mkv"}
+
+class ProcessamentoDeArquivosApp:
     def __init__(self):
         self.config = configparser.ConfigParser()
         self.config_file = 'config.ini'
         self.root = tk.Tk()
-        self.root.title("Configuração de Processamento de Imagens")
+        self.root.title("Configuração de Processamento de Arquivos")
         self.estilo = ttk.Style("darkly")
         self.estilo.configure('TLabel', font=('Arial', 10))
         self.estilo.configure('TButton', font=('Arial', 10), bootstyle=SUCCESS)
@@ -52,12 +55,16 @@ class ProcessamentoDeImagensApp:
         self.button_processando = ttk.Button(self.frame_principal, text="Iniciar Processamento", bootstyle=SUCCESS, command=self.iniciar_thread_de_processamento)
         self.button_processando.grid(column=2, row=3, sticky=tk.E, pady=10)
 
-        self.colunas = ('nome_pasta', 'total_arquivos')
+        self.colunas = ('nome_pasta', 'total_arquivos', 'fotos', 'videos')
         self.lista_pastas = ttk.Treeview(self.root, columns=self.colunas, show='headings', bootstyle='info')
         self.lista_pastas.heading('nome_pasta', text='Nome da Pasta')
         self.lista_pastas.column('nome_pasta', width=200)
-        self.lista_pastas.heading('total_arquivos', text='Total de Arquivos')
-        self.lista_pastas.column('total_arquivos', width=100, anchor=tk.CENTER)
+        self.lista_pastas.heading('total_arquivos', text='Total')
+        self.lista_pastas.column('total_arquivos', width=70, anchor=tk.CENTER)
+        self.lista_pastas.heading('fotos', text='Fotos')
+        self.lista_pastas.column('fotos', width=70, anchor=tk.CENTER)
+        self.lista_pastas.heading('videos', text='Vídeos')
+        self.lista_pastas.column('videos', width=70, anchor=tk.CENTER)
         self.lista_pastas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.barra_progresso = ttk.Progressbar(self.root, bootstyle="striped", orient=tk.HORIZONTAL, length=400, mode='determinate')
@@ -68,9 +75,109 @@ class ProcessamentoDeImagensApp:
 
         self.carregar_configuracoes()
         self.configurar_botoes()
-
         self.atualizar_lista_de_pastas()
 
+    def get_file_counts(self, diretorio):
+        """Conta o número de arquivos de imagem e vídeo em um diretório."""
+        total_fotos = 0
+        total_videos = 0
+        for root, _, arquivos in os.walk(diretorio):
+            for arquivo in arquivos:
+                ext = os.path.splitext(arquivo)[1].lower()
+                if ext in EXTENSOES_IMAGEM:
+                    total_fotos += 1
+                elif ext in EXTENSOES_VIDEO:
+                    total_videos += 1
+        return total_fotos, total_videos
+
+    def atualizar_lista_de_pastas(self):
+        """Atualiza a lista de pastas com contagem de arquivos por tipo."""
+        caminho_pasta = self.entry_pasta_origem.get()
+        for i in self.lista_pastas.get_children():
+            self.lista_pastas.delete(i)
+        if os.path.exists(caminho_pasta):
+            for diretorio in os.listdir(caminho_pasta):
+                caminho_dir = os.path.join(caminho_pasta, diretorio)
+                if os.path.isdir(caminho_dir):
+                    if self.validar_nome_pasta(diretorio):
+                        total_fotos, total_videos = self.get_file_counts(caminho_dir)
+                        total = total_fotos + total_videos
+                        self.lista_pastas.insert('', 'end', values=(diretorio, total, total_fotos, total_videos))
+
+    def processar_arquivo(self, caminho_arquivo, pasta_base_destino, data, autor, numero, tipo):
+            """Processa um arquivo individual (imagem ou vídeo)."""
+            nome = f"{data[8:10]}.{data[5:7]}.{data[0:4]}_{autor}_{numero:05d}"
+            extensao = os.path.splitext(caminho_arquivo)[1]
+            
+            if tipo == "imagem":
+                novo_caminho = os.path.join(pasta_base_destino, "A - Fotografias", "A1 - Fotografias Digitais")
+            else:  # tipo == "video"
+                novo_caminho = os.path.join(pasta_base_destino, "C - Áudio Visual", "C1 - Vídeos Digitais")
+
+            # Adiciona a estrutura de ano/mês/dia ao caminho
+            novo_caminho = os.path.join(
+                novo_caminho,
+                data[0:4],
+                meses[data[5:7]],
+                data[8:10] + "_" + data[5:7] + "_" + data[0:4]
+            )
+
+            # Pega o nome do evento do diretório pai do arquivo
+            diretorio_pai = os.path.basename(os.path.dirname(caminho_arquivo))
+            nome_evento = " ".join(diretorio_pai.split(" ")[1:])  # Pega tudo depois da data
+            
+            # Adiciona o nome do evento ao caminho
+            if nome_evento:
+                novo_caminho += " - " + nome_evento
+
+            self.criar_diretorio_se_necessario(novo_caminho)
+            arquivo_destino = os.path.join(novo_caminho, nome + extensao)
+
+            if tipo == "imagem":
+                self.otimizar_imagem(caminho_arquivo, arquivo_destino)
+            else:  # tipo == "video"
+                # Para vídeos, apenas copiamos o arquivo
+                import shutil
+                shutil.copy2(caminho_arquivo, arquivo_destino)
+
+    def processar_imagens(self, pasta_origem, pasta_destino, autor, callback_progresso, button_processando):
+        diretorios = [d for d in os.listdir(pasta_origem) if os.path.isdir(os.path.join(pasta_origem, d))]
+
+        total_processado = 0
+        total_arquivos = sum(int(self.lista_pastas.item(item, 'values')[1]) for item in self.lista_pastas.get_children())
+
+        for diretorio in diretorios:
+            bundle = diretorio.split(" ")
+            data = bundle[0]
+
+            if not self.validar_data(data) or len(bundle) <= 1:
+                print(f"{diretorio} não corresponde ao formato YYYY-MM-DD Nome do Evento")
+                continue
+
+            caminho_dir = os.path.join(pasta_origem, diretorio)
+            numero_imagem = 0
+            numero_video = 0
+
+            for arquivo in os.listdir(caminho_dir):
+                caminho_arquivo = os.path.join(caminho_dir, arquivo)
+                extensao = os.path.splitext(arquivo)[1].lower()
+
+                if extensao in EXTENSOES_IMAGEM:
+                    numero_imagem += 1
+                    self.processar_arquivo(caminho_arquivo, pasta_destino, data, autor, numero_imagem, "imagem")
+                    total_processado += 1
+                elif extensao in EXTENSOES_VIDEO:
+                    numero_video += 1
+                    self.processar_arquivo(caminho_arquivo, pasta_destino, data, autor, numero_video, "video")
+                    total_processado += 1
+
+                progresso = (total_processado / total_arquivos) * 100 if total_arquivos > 0 else 0
+                callback_progresso(progresso, total_processado, total_arquivos)
+
+        button_processando.config(text="Iniciar Processamento", state=tk.NORMAL)
+        messagebox.showinfo("Sucesso", "O processamento de arquivos foi concluído com sucesso!")
+
+    # Os outros métodos permanecem iguais...
     def carregar_configuracoes(self):
         if os.path.exists(self.config_file):
             self.config.read(self.config_file)
@@ -113,30 +220,6 @@ class ProcessamentoDeImagensApp:
         self.button_processando.config(text="Processando...", state=tk.DISABLED)
         Thread(target=self.processar_imagens, args=(pasta_origem, pasta_destino, autor, self.atualizar_progresso, self.button_processando), daemon=True).start()
 
-    def contar_arquivos_no_diretorio(self, caminho_diretorio):
-        """Conta os arquivos em um diretório."""
-        return sum([len(arquivos) for r, d, arquivos in os.walk(caminho_diretorio)])
-
-    def contar_arquivos_no_diretorio_geral(self, caminho_diretorio):
-        soma = 0
-        for item in self.lista_pastas.get_children():
-            soma += int(self.lista_pastas.item(item, 'values')[1])
-        return soma
-
-    def atualizar_lista_de_pastas(self):
-        """Atualiza a lista de pastas e o total de arquivos na tabela."""
-        caminho_pasta = self.entry_pasta_origem.get()
-        for i in self.lista_pastas.get_children():
-            self.lista_pastas.delete(i)
-        if os.path.exists(caminho_pasta):
-            for diretorio in os.listdir(caminho_pasta):
-                caminho_dir = os.path.join(caminho_pasta, diretorio)
-                if os.path.isdir(caminho_dir):
-                    total_arquivos = self.contar_arquivos_no_diretorio(caminho_dir)
-                    if  self.validar_nome_pasta(diretorio):
-                        self.lista_pastas.insert('', 'end', values=(diretorio, total_arquivos))
-        self.lista_pastas.tag_configure('error', foreground='red')
-
     def validar_nome_pasta(self, nome_pasta):
         bundle = nome_pasta.split(" ")
         return self.validar_data(bundle[0]) and len(bundle) > 1
@@ -153,53 +236,9 @@ class ProcessamentoDeImagensApp:
             os.makedirs(diretorio)
 
     def otimizar_imagem(self, caminho_arquivo, imagem_para):
-        extensoes_validas = {".jpg", ".jpeg", ".png", ".gif"}
-        if os.path.splitext(caminho_arquivo)[1].lower() in extensoes_validas:
+        if os.path.splitext(caminho_arquivo)[1].lower() in EXTENSOES_IMAGEM:
             with Image.open(caminho_arquivo) as im:
                 im.save(imagem_para)
-
-    def processar_imagens(self, pasta_origem, pasta_destino, autor, callback_progresso, button_processando):
-        diretorios = [d for d in os.listdir(pasta_origem) if os.path.isdir(os.path.join(pasta_origem, d))]
-
-        contagem_pastas = 0
-        contagem_imagens = 0
-        total_imagens = self.contar_arquivos_no_diretorio_geral(pasta_origem)
-
-        for diretorio in diretorios:
-            contagem_pastas += 1
-            bundle = diretorio.split(" ")
-            data = bundle[0]
-
-            caminho_destino = ""
-            if self.validar_data(data) and len(bundle) > 1:
-                caminho_destino = os.path.join(
-                    pasta_destino,
-                    data[0:4],
-                    meses[data[5:7]],
-                    data[8:10] + "_" + data[5:7] + "_" + data[0:4],
-                )
-            else:
-                print(f"{diretorio} Não corresponde ao formato dd-mm-yy")
-                continue
-
-            if len(bundle) > 1:
-                caminho_destino += " - " + " ".join(bundle[1:])
-
-            self.criar_diretorio_se_necessario(caminho_destino)
-
-            numero = 0
-            for arquivo in os.listdir(os.path.join(pasta_origem, diretorio)):
-                numero += 1
-                nome = f"{data[8:10]}.{data[5:7]}.{data[0:4]}_{autor}_{numero:05d}"
-                imagem_para = os.path.join(caminho_destino, nome + os.path.splitext(arquivo)[1])
-                self.otimizar_imagem(os.path.join(pasta_origem, diretorio, arquivo), imagem_para)
-                contagem_imagens += 1
-                progresso_atual = 100 * contagem_imagens / total_imagens
-                callback_progresso(progresso_atual, contagem_imagens, total_imagens)
-
-        print(f"\n{contagem_pastas} pastas organizadas\n")
-        button_processando.config(text="Iniciar Processamento", state=tk.NORMAL)
-        messagebox.showinfo("Sucesso", "O processamento de imagens foi concluído com sucesso!")
 
     def selecionar_pasta_origem(self):
         diretorio = filedialog.askdirectory()
@@ -234,5 +273,5 @@ class ProcessamentoDeImagensApp:
         self.root.mainloop()
 
 if __name__ == "__main__":
-    app = ProcessamentoDeImagensApp()
+    app = ProcessamentoDeArquivosApp()
     app.run()
